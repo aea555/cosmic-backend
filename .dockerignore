@@ -1,0 +1,55 @@
+# Build artifacts
+target/
+debug/
+release/
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files (secrets!)
+.env
+.env.*
+!.env.example
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation (not needed in runtime image)
+*.md
+!README.md
+docs/
+
+# Test files
+tests/
+*.test.*
+
+# Local development
+docker-compose*.yml
+Makefile—
+
+# CI/CD
+.github/
+
+# Cargo cache (we use Docker layer caching instead)
+.cargo/
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+
+# Rust-specific
+Cargo.lock.bak
+
+# IDE
+*.iml
+
+# SQLx offline mode cache 
+.sqlx/
