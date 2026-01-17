@@ -1,0 +1,520 @@
+//! Strongly-typed domain types using the Newtype pattern.
+//!
+//! This module defines wrapper types that prevent accidental mixing of semantically
+//! different values (e.g., UserId vs SecretId). All sensitive data uses secrecy
+//! wrappers for automatic memory zeroing.
+
+#![allow(dead_code)] // Library types with methods for future expansion
+
+use secrecy::{ExposeSecret, SecretBox, SecretString};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use utoipa::ToSchema;
+use uuid::Uuid;
+
+/// Unique identifier for a user.
+///
+/// Params: Wraps a UUID v4.
+/// Logic: Using Newtype pattern prevents accidental use of SecretId where UserId is expected.
+/// Returns: An opaque user identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
+#[sqlx(transparent)]
+#[schema(value_type = String, example = "550e8400-e29b-41d4-a716-446655440000")]
+pub struct UserId(pub Uuid);
+
+impl UserId {
+    /// Creates a new random UserId.
+    ///
+    /// Params: None.
+    /// Logic: Generates a UUID v4.
+    /// Returns: A new unique UserId.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Returns the inner UUID value.
+    ///
+    /// Params: None.
+    /// Logic: Exposes the wrapped UUID.
+    /// Returns: The inner UUID.
+    #[must_use]
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for UserId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for UserId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Unique identifier for a secret entry.
+///
+/// Params: Wraps a UUID v4.
+/// Logic: Using Newtype pattern prevents accidental use of UserId where SecretId is expected.
+/// Returns: An opaque secret identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
+#[sqlx(transparent)]
+#[schema(value_type = String, example = "550e8400-e29b-41d4-a716-446655440000")]
+pub struct SecretId(pub Uuid);
+
+impl SecretId {
+    /// Creates a new random SecretId.
+    ///
+    /// Params: None.
+    /// Logic: Generates a UUID v4.
+    /// Returns: A new unique SecretId.
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// Returns the inner UUID value.
+    ///
+    /// Params: None.
+    /// Logic: Exposes the wrapped UUID.
+    /// Returns: The inner UUID.
+    #[must_use]
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for SecretId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for SecretId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A cryptographic salt used for key derivation.
+///
+/// Params: Wraps a 32-byte array.
+/// Logic: Fixed-size salt for Argon2id key derivation.
+/// Returns: Salt bytes.
+#[derive(Debug, Clone)]
+pub struct Salt(pub [u8; 32]);
+
+impl Salt {
+    /// Returns the salt as a byte slice.
+    ///
+    /// Params: None.
+    /// Logic: Exposes the salt bytes.
+    /// Returns: Reference to salt bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl From<[u8; 32]> for Salt {
+    fn from(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+}
+
+impl TryFrom<Vec<u8>> for Salt {
+    type Error = String;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        let arr: [u8; 32] = bytes
+            .try_into()
+            .map_err(|v: Vec<u8>| format!("Expected 32 bytes, got {}", v.len()))?;
+        Ok(Self(arr))
+    }
+}
+
+/// The Master Key derived from user's password.
+///
+/// Params: Wraps a 32-byte key in a SecretBox for automatic memory zeroing.
+/// Logic: Never stored to disk. Exists only in request context and momentary RAM.
+/// Returns: The derived encryption key.
+pub struct MasterKey(SecretBox<[u8; 32]>);
+
+impl MasterKey {
+    /// Creates a MasterKey from raw bytes.
+    ///
+    /// Params: 32-byte key array.
+    /// Logic: Wraps in SecretBox for automatic memory zeroing on drop.
+    /// Returns: A new MasterKey.
+    #[must_use]
+    pub fn new(key: [u8; 32]) -> Self {
+        Self(SecretBox::new(Box::new(key)))
+    }
+
+    /// Exposes the key bytes for cryptographic operations.
+    ///
+    /// Params: None.
+    /// Logic: Returns a reference to the key bytes.
+    /// Returns: Reference to the 32-byte key.
+    #[must_use]
+    pub fn expose(&self) -> &[u8; 32] {
+        self.0.expose_secret()
+    }
+}
+
+impl std::fmt::Debug for MasterKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MasterKey([REDACTED])")
+    }
+}
+
+/// Encrypted data blob with nonce prepended.
+///
+/// Params: Raw bytes containing nonce + ciphertext.
+/// Logic: Format is 12-byte nonce followed by ChaCha20-Poly1305 ciphertext.
+/// Returns: Encrypted bytes.
+#[derive(Debug, Clone)]
+pub struct EncryptedBlob(pub Vec<u8>);
+
+impl EncryptedBlob {
+    /// Creates an EncryptedBlob from raw bytes.
+    ///
+    /// Params: Raw encrypted bytes.
+    /// Logic: Stores bytes as-is.
+    /// Returns: A new EncryptedBlob.
+    #[must_use]
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the encrypted bytes.
+    ///
+    /// Params: None.
+    /// Logic: Exposes the encrypted bytes.
+    /// Returns: Reference to encrypted bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Consumes self and returns the inner bytes.
+    ///
+    /// Params: None.
+    /// Logic: Returns owned bytes.
+    /// Returns: The encrypted bytes.
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+}
+
+/// A password wrapped in SecretString for automatic zeroing.
+///
+/// Params: Password string wrapped in SecretString.
+/// Logic: Prevents accidental logging or display of password.
+/// Returns: The password wrapper.
+pub struct Password(SecretString);
+
+impl Password {
+    /// Creates a Password from a string.
+    ///
+    /// Params: Raw password string.
+    /// Logic: Wraps in SecretString for protection.
+    /// Returns: A new Password.
+    #[must_use]
+    pub fn new(password: String) -> Self {
+        Self(SecretString::from(password))
+    }
+
+    /// Exposes the password for cryptographic operations.
+    ///
+    /// Params: None.
+    /// Logic: Returns the password string.
+    /// Returns: Reference to the password.
+    #[must_use]
+    pub fn expose(&self) -> &str {
+        self.0.expose_secret()
+    }
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Password([REDACTED])")
+    }
+}
+
+/// User entity from database.
+///
+/// Params: Contains user data including encrypted canary.
+/// Logic: No password hash is stored per Zero-Knowledge architecture.
+/// Returns: User record.
+#[derive(Debug, Clone, FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub email: String,
+    pub salt: Vec<u8>,
+    pub encrypted_canary: Vec<u8>,
+    pub email_verified: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Email verification token entity from database.
+///
+/// Params: Contains verification token data.
+/// Logic: Used for email verification during registration.
+/// Returns: Verification token record.
+#[derive(Debug, Clone, FromRow)]
+pub struct EmailVerificationToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: Vec<u8>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Secret entity from database.
+///
+/// Params: Contains encrypted secret data.
+/// Logic: All data is encrypted with user's Master Key.
+/// Returns: Secret record.
+#[derive(Debug, Clone, FromRow)]
+pub struct Secret {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub encrypted_data: Vec<u8>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Refresh token entity from database.
+///
+/// Params: Contains hashed refresh token data.
+/// Logic: Token is hashed with SHA-256 before storage.
+/// Returns: Refresh token record.
+#[derive(Debug, Clone, FromRow)]
+pub struct RefreshToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub token_hash: Vec<u8>,
+    pub used: bool,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Request payload for user registration.
+///
+/// Params: Email and master password.
+/// Logic: Validated before processing.
+/// Returns: Registration request.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct RegisterRequest {
+    #[validate(email(message = "Invalid email format"))]
+    pub email: String,
+    #[validate(length(min = 12, message = "Password must be at least 12 characters"))]
+    pub password: String,
+}
+
+/// Request payload for email verification.
+///
+/// Params: Verification token from email link.
+/// Logic: Token is validated against database.
+/// Returns: Verification request.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct VerifyEmailRequest {
+    pub token: String,
+}
+
+/// Request payload for user login.
+///
+/// Params: Email and master password.
+/// Logic: Password is used to derive Master Key and verify Canary.
+/// Returns: Login request.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct LoginRequest {
+    #[validate(email(message = "Invalid email format"))]
+    pub email: String,
+    pub password: String,
+}
+
+/// Response payload for successful authentication.
+///
+/// Params: Access token (JWT) and refresh token.
+/// Logic: Access token expires in 15 minutes, refresh token in 30 days.
+/// Returns: Authentication tokens.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuthResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub token_type: String,
+    pub expires_in: i64,
+}
+
+/// Request payload for token refresh.
+///
+/// Params: Refresh token string.
+/// Logic: Token is rotated on each use.
+/// Returns: Refresh request.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RefreshRequest {
+    pub refresh_token: String,
+}
+
+/// Request payload for creating a new secret.
+///
+/// Params: Secret data to be encrypted.
+/// Logic: Data is encrypted with Master Key before storage.
+/// Returns: Create secret request.
+#[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
+pub struct CreateSecretRequest {
+    #[validate(length(min = 1, max = 255, message = "Title must be 1-255 characters"))]
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// Request payload for updating an existing secret.
+///
+/// Params: Updated secret data.
+/// Logic: Data is re-encrypted with Master Key.
+/// Returns: Update secret request.
+#[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
+pub struct UpdateSecretRequest {
+    #[validate(length(min = 1, max = 255, message = "Title must be 1-255 characters"))]
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// Response payload for a decrypted secret.
+///
+/// Params: Decrypted secret data.
+/// Logic: Sensitive fields are decrypted only during request processing.
+/// Returns: Secret response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SecretResponse {
+    pub id: SecretId,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// JWT claims structure.
+///
+/// Params: Standard JWT claims plus custom user_id.
+/// Logic: Used for access token validation.
+/// Returns: Token claims.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub user_id: Uuid,
+    pub exp: usize,
+    pub iat: usize,
+}
+
+/// Generic API response wrapper.
+///
+/// Params: Success flag and optional message/data.
+/// Logic: Standard response format for all endpoints.
+/// Returns: API response.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+}
+
+impl<T> ApiResponse<T> {
+    /// Creates a successful response with data.
+    ///
+    /// Params: Data to include in response.
+    /// Logic: Sets success to true.
+    /// Returns: Success response.
+    #[must_use]
+    pub fn success(data: T) -> Self {
+        Self {
+            success: true,
+            message: None,
+            data: Some(data),
+        }
+    }
+
+    /// Creates a successful response with just a message.
+    ///
+    /// Params: Message string.
+    /// Logic: Sets success to true with no data.
+    /// Returns: Success response.
+    #[must_use]
+    pub fn message(msg: impl Into<String>) -> ApiResponse<()> {
+        ApiResponse {
+            success: true,
+            message: Some(msg.into()),
+            data: None,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// OpenAPI Schema Wrappers
+// ----------------------------------------------------------------------------
+
+#[derive(ToSchema)]
+pub struct AuthResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    #[schema(example = "Login successful")]
+    pub message: Option<String>,
+    pub data: Option<AuthResponse>,
+}
+
+#[derive(ToSchema)]
+pub struct SecretResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<SecretResponse>,
+}
+
+#[derive(ToSchema)]
+pub struct SecretListResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<Vec<SecretResponse>>,
+}
+
+#[derive(ToSchema)]
+pub struct EmptyResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    #[schema(example = "Operation successful")]
+    pub message: Option<String>,
+    #[schema(nullable = true)]
+    pub data: Option<()>,
+}

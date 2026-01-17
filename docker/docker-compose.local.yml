@@ -1,23 +1,20 @@
-# Docker Compose for Cosmic Password Manager API
+# Docker Compose for Local Development with Nginx
 #
-# Usage:
-#   Development:  docker compose --env-file ../.env up -d
-#   Production:   docker compose --env-file ../.env.production up -d
+# Usage from project root:
+#   docker compose -f docker/docker-compose.local.yml build
+#   docker compose -f docker/docker-compose.local.yml up -d
 #
-# Environment files should be in the project root (../), not in this docker/ folder.
-# Copy ../.env.example to ../.env and configure your values.
+# Note: If docker compose does not pick up the .env file automatically, use:
+#   docker compose -f docker/docker-compose.local.yml --env-file .env build
 
 services:
   postgres:
     image: postgres:16-alpine
     container_name: cosmic-postgres
-    env_file: ../.env
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
-      POSTGRES_PORT: ${POSTGRES_PORT:?POSTGRES_PORT is required}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "${POSTGRES_PORT:?POSTGRES_PORT is required}:5432"
     volumes:
@@ -33,10 +30,6 @@ services:
   valkey:
     image: valkey/valkey:9.0-alpine
     container_name: cosmic-valkey
-    env_file: ../.env
-    environment:
-      REDIS_URL: redis://:${REDIS_PASSWORD}@valkey:6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
     ports:
       - "${REDIS_PORT:?REDIS_PORT is required}:6379"
     volumes:
@@ -60,6 +53,13 @@ services:
     expose:
       - "${SERVER_PORT}"
     environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_PORT: ${POSTGRES_PORT:?POSTGRES_PORT is required}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@valkey:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       SERVER_HOST: ${SERVER_HOST:?SERVER_HOST is required}
       SERVER_PORT: ${SERVER_PORT}
       APP_URL: ${APP_URL:?APP_URL is required}
@@ -70,14 +70,18 @@ services:
       EMAIL__FROM_EMAIL: ${EMAIL__FROM_EMAIL:?EMAIL__FROM_EMAIL is required}
       EMAIL__FROM_NAME: ${EMAIL__FROM_NAME:?EMAIL__FROM_NAME is required}
       EMAIL__REPLY_TO_EMAIL: ${EMAIL__REPLY_TO_EMAIL:?EMAIL__REPLY_TO_EMAIL is required}
-
-      # Logging
       RUST_LOG: ${RUST_LOG:-info,cosmic_backend=debug}
     depends_on:
       postgres:
         condition: service_healthy
       valkey:
         condition: service_healthy
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 20s
     restart: unless-stopped
 
   nginx:
