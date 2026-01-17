@@ -66,8 +66,9 @@ pub async fn list_secrets(
     let key = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
         .await?;
 
-    // Get all decrypted secrets
-    let secrets = vault::get_all_secrets(&state.db, user_id.into_inner(), key).await?;
+    // Get all decrypted secrets (with read-through caching)
+    let secrets =
+        vault::get_all_secrets(&state.db, &state.cache, user_id.into_inner(), key).await?;
 
     Ok(Json(ApiResponse::success(secrets)))
 }
@@ -109,8 +110,15 @@ pub async fn get_secret(
     let key = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
         .await?;
 
-    // Get and decrypt secret
-    let secret = vault::get_secret(&state.db, secret_id, user_id.into_inner(), &key).await?;
+    // Get and decrypt secret (with read-through caching)
+    let secret = vault::get_secret(
+        &state.db,
+        &state.cache,
+        secret_id,
+        user_id.into_inner(),
+        &key,
+    )
+    .await?;
 
     Ok(Json(ApiResponse::success(secret)))
 }
@@ -219,6 +227,7 @@ pub async fn update_secret(
 
     // Invalidate secrets cache after write
     let _ = cache::invalidate_secrets(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_secret_by_id(&state.cache, secret_id).await;
 
     tracing::info!("Secret updated: {}", secret.id);
 
@@ -267,6 +276,7 @@ pub async fn delete_secret(
 
     // Invalidate secrets cache after delete
     let _ = cache::invalidate_secrets(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_secret_by_id(&state.cache, secret_id).await;
 
     tracing::info!("Secret deleted: {}", secret_id);
 

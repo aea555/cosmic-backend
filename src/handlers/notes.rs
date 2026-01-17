@@ -65,7 +65,7 @@ pub async fn list_notes(
     let key = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
         .await?;
 
-    let notes = vault::get_all_notes(&state.db, user_id.into_inner(), key).await?;
+    let notes = vault::get_all_notes(&state.db, &state.cache, user_id.into_inner(), key).await?;
 
     Ok(Json(ApiResponse::success(notes)))
 }
@@ -106,7 +106,8 @@ pub async fn get_note(
     let key = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
         .await?;
 
-    let note = vault::get_note(&state.db, note_id, user_id.into_inner(), &key).await?;
+    let note =
+        vault::get_note(&state.db, &state.cache, note_id, user_id.into_inner(), &key).await?;
 
     Ok(Json(ApiResponse::success(note)))
 }
@@ -208,6 +209,7 @@ pub async fn update_note(
 
     // Invalidate notes cache after write
     let _ = cache::invalidate_notes(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_note_by_id(&state.cache, note_id).await;
 
     tracing::info!("Note updated: {}", note.id);
 
@@ -255,6 +257,7 @@ pub async fn delete_note(
 
     // Invalidate notes cache after delete
     let _ = cache::invalidate_notes(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_note_by_id(&state.cache, note_id).await;
 
     tracing::info!("Note deleted: {}", note_id);
 

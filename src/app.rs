@@ -65,13 +65,40 @@ pub async fn build_app(settings: Settings) -> AppResult<Router> {
 /// Builds the Axum router with all routes and middleware.
 ///
 /// Params: Application state.
-/// Logic: Configures CORS, tracing, compression, and timeout middleware.
+/// Logic: Configures CORS based on environment, applies tracing and compression.
 /// Returns: Configured router.
 fn build_router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // CORS Configuration:
+    // - Development: Permissive for testing with web tools
+    // - Production: Deny all origins (mobile apps bypass CORS anyway)
+    let cors = match state.config.environment {
+        crate::config::AppEnvironment::Development => {
+            tracing::info!("CORS: Permissive (development mode)");
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        }
+        crate::config::AppEnvironment::Production => {
+            // Strict: No origins allowed. Mobile apps don't use CORS.
+            // If a web admin panel is needed, specific origins will be added here.
+            tracing::info!("CORS: Strict (production mode - no web origins allowed)");
+            CorsLayer::new()
+                // allow_origin with empty list = deny all
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::HeaderName::from_static("x-master-password"),
+                ])
+        }
+    };
 
     let mut router = Router::new()
         .nest("/api/v1", routes::api_routes(state.clone()))

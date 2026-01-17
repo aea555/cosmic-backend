@@ -312,7 +312,7 @@ pub struct EmailVerificationToken {
 /// Params: Contains encrypted secret data.
 /// Logic: All data is encrypted with user's Master Key.
 /// Returns: Secret record.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Secret {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -322,7 +322,7 @@ pub struct Secret {
 }
 
 /// Note entity from database.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Note {
     pub id: Uuid,
     pub user_id: Uuid,

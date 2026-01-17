@@ -11,11 +11,9 @@ use uuid::Uuid;
 const CANARY_TTL_SECONDS: u64 = 3600;
 
 /// Default TTL for secrets cache (1 hour).
-#[allow(dead_code)] // Prepared for future read-through caching
 const SECRETS_TTL_SECONDS: u64 = 3600;
 
 /// Default TTL for notes cache (1 hour).
-#[allow(dead_code)] // Prepared for future read-through caching
 const NOTES_TTL_SECONDS: u64 = 3600;
 
 /// Default TTL for token blacklist (matches refresh token expiry).
@@ -60,7 +58,6 @@ pub async fn set_canary(pool: &Pool, user_id: Uuid, canary: &[u8]) -> AppResult<
 /// Params: Redis pool, user UUID.
 /// Logic: Looks up cached encrypted secrets blob.
 /// Returns: Serialized encrypted secrets if found, None otherwise.
-#[allow(dead_code)] // Prepared for future read-through caching
 pub async fn get_secrets(pool: &Pool, user_id: Uuid) -> AppResult<Option<Vec<u8>>> {
     let mut conn = pool
         .get()
@@ -78,7 +75,6 @@ pub async fn get_secrets(pool: &Pool, user_id: Uuid) -> AppResult<Option<Vec<u8>
 /// Params: Redis pool, user UUID, serialized encrypted secrets.
 /// Logic: Stores encrypted blob with TTL.
 /// Returns: Unit on success.
-#[allow(dead_code)] // Prepared for future read-through caching
 pub async fn set_secrets(pool: &Pool, user_id: Uuid, secrets: &[u8]) -> AppResult<()> {
     let mut conn = pool
         .get()
@@ -113,7 +109,6 @@ pub async fn invalidate_secrets(pool: &Pool, user_id: Uuid) -> AppResult<()> {
 /// Params: Redis pool, user UUID.
 /// Logic: Looks up cached encrypted notes blob.
 /// Returns: Serialized encrypted notes if found, None otherwise.
-#[allow(dead_code)] // Prepared for future read-through caching
 pub async fn get_notes(pool: &Pool, user_id: Uuid) -> AppResult<Option<Vec<u8>>> {
     let mut conn = pool
         .get()
@@ -131,7 +126,6 @@ pub async fn get_notes(pool: &Pool, user_id: Uuid) -> AppResult<Option<Vec<u8>>>
 /// Params: Redis pool, user UUID, serialized encrypted notes.
 /// Logic: Stores encrypted blob with TTL.
 /// Returns: Unit on success.
-#[allow(dead_code)] // Prepared for future read-through caching
 pub async fn set_notes(pool: &Pool, user_id: Uuid, notes: &[u8]) -> AppResult<()> {
     let mut conn = pool
         .get()
@@ -156,6 +150,112 @@ pub async fn invalidate_notes(pool: &Pool, user_id: Uuid) -> AppResult<()> {
         .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
 
     let key = format!("user:{}:notes", user_id);
+    let _: () = conn.del(&key).await?;
+
+    Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// SINGLE ENTITY CACHE (by ID)
+// ----------------------------------------------------------------------------
+
+/// Gets a single encrypted secret from cache.
+///
+/// Params: Redis pool, secret UUID.
+/// Logic: Looks up cached secret blob by ID.
+/// Returns: Serialized encrypted secret if found, None otherwise.
+pub async fn get_secret_by_id(pool: &Pool, secret_id: Uuid) -> AppResult<Option<Vec<u8>>> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("secret:{}", secret_id);
+    let result: Option<Vec<u8>> = conn.get(&key).await?;
+
+    Ok(result)
+}
+
+/// Caches a single encrypted secret.
+///
+/// Params: Redis pool, secret UUID, serialized encrypted secret.
+/// Logic: Stores encrypted blob with TTL.
+/// Returns: Unit on success.
+pub async fn set_secret_by_id(pool: &Pool, secret_id: Uuid, secret: &[u8]) -> AppResult<()> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("secret:{}", secret_id);
+    let _: () = conn.set_ex(&key, secret, SECRETS_TTL_SECONDS).await?;
+
+    Ok(())
+}
+
+/// Invalidates a single secret from cache.
+///
+/// Params: Redis pool, secret UUID.
+/// Logic: Deletes cached secret. Called after update/delete.
+/// Returns: Unit on success.
+pub async fn invalidate_secret_by_id(pool: &Pool, secret_id: Uuid) -> AppResult<()> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("secret:{}", secret_id);
+    let _: () = conn.del(&key).await?;
+
+    Ok(())
+}
+
+/// Gets a single encrypted note from cache.
+///
+/// Params: Redis pool, note UUID.
+/// Logic: Looks up cached note blob by ID.
+/// Returns: Serialized encrypted note if found, None otherwise.
+pub async fn get_note_by_id(pool: &Pool, note_id: Uuid) -> AppResult<Option<Vec<u8>>> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("note:{}", note_id);
+    let result: Option<Vec<u8>> = conn.get(&key).await?;
+
+    Ok(result)
+}
+
+/// Caches a single encrypted note.
+///
+/// Params: Redis pool, note UUID, serialized encrypted note.
+/// Logic: Stores encrypted blob with TTL.
+/// Returns: Unit on success.
+pub async fn set_note_by_id(pool: &Pool, note_id: Uuid, note: &[u8]) -> AppResult<()> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("note:{}", note_id);
+    let _: () = conn.set_ex(&key, note, NOTES_TTL_SECONDS).await?;
+
+    Ok(())
+}
+
+/// Invalidates a single note from cache.
+///
+/// Params: Redis pool, note UUID.
+/// Logic: Deletes cached note. Called after update/delete.
+/// Returns: Unit on success.
+pub async fn invalidate_note_by_id(pool: &Pool, note_id: Uuid) -> AppResult<()> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("note:{}", note_id);
     let _: () = conn.del(&key).await?;
 
     Ok(())
