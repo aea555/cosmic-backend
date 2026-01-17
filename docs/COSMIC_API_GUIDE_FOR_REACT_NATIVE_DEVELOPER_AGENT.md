@@ -27,8 +27,8 @@ Cosmic Vault is a **Zero-Knowledge Password Manager**. This means:
 
 ### Base URL
 ```
-Production: https://api.cosmicvault.com
-Development: http://localhost:8080
+Production: https://your-domain.com
+Development: http://localhost:9090
 ```
 
 ### Required Headers
@@ -80,6 +80,28 @@ POST /api/v1/auth/verify-email
   "message": "Email verified successfully. You can now log in."
 }
 ```
+
+### 2b. Resend Verification Email
+If the user didn't receive the email or the token expired (24 hours):
+```
+POST /api/v1/auth/resend-verification
+```
+**Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "Verification email sent. Please check your inbox."
+}
+```
+**Error Responses:**
+- `409 EMAIL_ALREADY_VERIFIED` - User is already verified
+- `429 VERIFICATION_PENDING` - Must wait before resending (includes `retry_after` seconds)
 
 ### 3. Login
 ```
@@ -199,6 +221,73 @@ async function handleDeepLink(url) {
   } catch (error) {
     console.error('Deep link error:', error);
   }
+}
+```
+
+### Resend Verification Implementation
+
+```javascript
+import { useState } from 'react';
+
+function ResendVerification({ email }) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [message, setMessage] = useState('');
+
+  // Countdown timer for cooldown
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
+  async function handleResend() {
+    if (cooldown > 0 || isLoading) return;
+    
+    setIsLoading(true);
+    setMessage('');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setMessage('Verification email sent!');
+        setCooldown(60); // Prevent spam clicking
+      } else if (data.code === 'VERIFICATION_PENDING') {
+        // Extract retry_after from error message or set default
+        const match = data.error.match(/(\d+) seconds/);
+        const seconds = match ? parseInt(match[1]) : 60;
+        setCooldown(seconds);
+        setMessage(`Please wait ${seconds}s before resending`);
+      } else if (data.code === 'EMAIL_ALREADY_VERIFIED') {
+        setMessage('Email is already verified. You can log in.');
+      } else {
+        setMessage(data.error || 'Failed to resend');
+      }
+    } catch (error) {
+      setMessage('Network error. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <View>
+      <Button
+        title={cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend Verification Email'}
+        onPress={handleResend}
+        disabled={cooldown > 0 || isLoading}
+      />
+      {message && <Text>{message}</Text>}
+    </View>
+  );
 }
 ```
 
@@ -358,8 +447,10 @@ DELETE /api/v1/notes/{id}
 | 404 | `USER_NOT_FOUND` | User doesn't exist | "Account not found" |
 | 404 | `SECRET_NOT_FOUND` | Secret doesn't exist | "Item not found" |
 | 409 | `USER_EXISTS` | Duplicate email | "An account with this email already exists" |
+| 409 | `EMAIL_ALREADY_VERIFIED` | Already verified | "This email is already verified" |
 | 422 | `INVALID_REQUEST_BODY` | Malformed JSON | "Invalid request format" |
 | 429 | `RATE_LIMITED` | Too many requests | "Too many attempts. Please wait a moment" |
+| 429 | `VERIFICATION_PENDING` | Token still valid | "Please wait X seconds before resending" |
 | 500 | `INTERNAL_ERROR` | Server error | "Something went wrong. Please try again later" |
 
 ### Recommended Error Handler
@@ -436,6 +527,7 @@ async function apiRequest(endpoint, options = {}) {
 | POST | `/api/v1/auth/register` | 5/min |
 | POST | `/api/v1/auth/login` | 5/min |
 | POST | `/api/v1/auth/verify-email` | 10/min |
+| POST | `/api/v1/auth/resend-verification` | 10/min |
 | POST | `/api/v1/auth/refresh` | 10/min |
 | POST | `/api/v1/auth/logout` | 10/min |
 

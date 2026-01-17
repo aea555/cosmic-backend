@@ -51,6 +51,10 @@ fn auth_routes(cache: RedisPool) -> Router<AppState> {
     let medium_routes = Router::new()
         .route("/verify-email", post(auth_handlers::verify_email))
         .route("/verify-redirect", get(auth_handlers::verify_redirect))
+        .route(
+            "/resend-verification",
+            post(auth_handlers::resend_verification),
+        )
         .route("/refresh", post(auth_handlers::refresh))
         .route("/logout", post(auth_handlers::logout))
         .layer(from_fn_with_state(

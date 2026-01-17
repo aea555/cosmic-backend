@@ -58,6 +58,17 @@ pub enum AppError {
     #[error("User already exists")]
     UserAlreadyExists,
 
+    /// Email is already verified.
+    #[error("Email already verified")]
+    EmailAlreadyVerified,
+
+    /// Verification email recently sent, must wait before resending.
+    #[error("Verification pending")]
+    VerificationPending {
+        /// Seconds until a new verification email can be requested.
+        retry_after_seconds: i64,
+    },
+
     /// Master password header missing from request.
     #[error("Master password required")]
     MasterPasswordRequired,
@@ -172,6 +183,23 @@ impl IntoResponse for AppError {
                 StatusCode::CONFLICT,
                 "USER_EXISTS",
                 "An account with this email already exists".to_string(),
+            ),
+            AppError::EmailAlreadyVerified => (
+                StatusCode::CONFLICT,
+                "EMAIL_ALREADY_VERIFIED",
+                "This email address is already verified".to_string(),
+            ),
+
+            // 429 Too Many Requests
+            AppError::VerificationPending {
+                retry_after_seconds,
+            } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "VERIFICATION_PENDING",
+                format!(
+                    "A verification email was recently sent. Please wait {} seconds before requesting a new one.",
+                    retry_after_seconds
+                ),
             ),
 
             // 429 Too Many Requests

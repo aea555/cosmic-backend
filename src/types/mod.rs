@@ -370,6 +370,17 @@ pub struct VerifyEmailRequest {
     pub token: String,
 }
 
+/// Request payload for resending verification email.
+///
+/// Params: Email address.
+/// Logic: Generates new verification token if no active token exists.
+/// Returns: Resend request.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ResendVerificationRequest {
+    #[validate(email(message = "Invalid email format"))]
+    pub email: String,
+}
+
 /// Request payload for user login.
 ///
 /// Params: Email and master password.

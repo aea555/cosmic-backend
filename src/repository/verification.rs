@@ -76,3 +76,25 @@ pub async fn delete_all_for_user(pool: &PgPool, user_id: Uuid) -> AppResult<()> 
 
     Ok(())
 }
+
+/// Finds an active (non-expired) verification token for a user.
+///
+/// Params: Database pool, user UUID.
+/// Logic: Returns the token if it exists and hasn't expired yet.
+/// Returns: Some(token) if active token exists, None otherwise.
+pub async fn find_active_for_user(
+    pool: &PgPool,
+    user_id: Uuid,
+) -> AppResult<Option<EmailVerificationToken>> {
+    sqlx::query_as::<_, EmailVerificationToken>(
+        "SELECT id, user_id, token_hash, expires_at, created_at
+         FROM email_verification_tokens
+         WHERE user_id = $1 AND expires_at > NOW()
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::Database)
+}

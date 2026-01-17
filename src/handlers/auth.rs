@@ -9,7 +9,7 @@ use crate::handlers::email;
 use crate::state::AppState;
 use crate::types::{
     ApiResponse, AuthResponse, AuthResponseWrapper, EmptyResponseWrapper, LoginRequest,
-    RefreshRequest, RegisterRequest, VerifyEmailRequest,
+    RefreshRequest, RegisterRequest, ResendVerificationRequest, VerifyEmailRequest,
 };
 use axum::{Json, extract::State, http::StatusCode};
 use validator::Validate;
@@ -98,6 +98,82 @@ pub async fn verify_email(
     Ok(Json(ApiResponse {
         success: true,
         message: Some("Email verified successfully. You can now log in.".to_string()),
+        data: None,
+    }))
+}
+
+/// Handles resending verification email.
+///
+/// Params: AppState, ResendVerificationRequest body.
+/// Logic: Checks user exists, not verified, no active token, sends new email.
+/// Returns: 200 OK with message on success.
+///
+/// POST /api/v1/auth/resend-verification
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/resend-verification",
+    request_body = ResendVerificationRequest,
+    responses(
+        (status = 200, description = "Verification email sent", body = EmptyResponseWrapper),
+        (status = 404, description = "User not found", body = EmptyResponseWrapper),
+        (status = 409, description = "Email already verified", body = EmptyResponseWrapper),
+        (status = 429, description = "Verification pending or rate limited", body = EmptyResponseWrapper)
+    ),
+    tag = "auth"
+)]
+pub async fn resend_verification(
+    State(state): State<AppState>,
+    AppJson(request): AppJson<ResendVerificationRequest>,
+) -> AppResult<Json<ApiResponse<()>>> {
+    use crate::core::crypto;
+    use crate::repository;
+    use chrono::{Duration, Utc};
+
+    request
+        .validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    // Find user by email
+    let user = repository::user::find_by_email(&state.db, &request.email).await?;
+
+    // Check if already verified
+    if user.email_verified {
+        return Err(AppError::EmailAlreadyVerified);
+    }
+
+    // Check for active (non-expired) verification token
+    if let Some(active_token) =
+        repository::verification::find_active_for_user(&state.db, user.id).await?
+    {
+        let retry_after = (active_token.expires_at - Utc::now()).num_seconds().max(0);
+        return Err(AppError::VerificationPending {
+            retry_after_seconds: retry_after,
+        });
+    }
+
+    // Delete any expired tokens
+    repository::verification::delete_all_for_user(&state.db, user.id).await?;
+
+    // Generate new verification token
+    let verification_token = crypto::generate_verification_token();
+    let token_hash = crypto::hash_verification_token(&verification_token);
+    let expires_at = Utc::now() + Duration::hours(24);
+
+    repository::verification::create(&state.db, user.id, &token_hash, expires_at).await?;
+
+    // Send verification email
+    if let Err(e) =
+        email::send_verification_email(&state.config, &request.email, &verification_token).await
+    {
+        tracing::error!("Failed to send verification email: {}", e);
+        return Err(e);
+    }
+
+    tracing::info!("Verification email resent to user: {}", user.id);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: Some("Verification email sent. Please check your inbox.".to_string()),
         data: None,
     }))
 }
