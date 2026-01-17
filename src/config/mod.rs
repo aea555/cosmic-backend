@@ -56,6 +56,41 @@ pub struct Settings {
     /// Reply-to email address.
     #[serde(rename = "email__reply_to_email")]
     pub email_reply_to: String,
+
+    /// Mobile app deep link scheme (e.g., "cosmicvault://").
+    /// Used to redirect email verification links to the mobile app.
+    #[serde(default = "default_mobile_deep_link_scheme")]
+    pub mobile_deep_link_scheme: String,
+
+    /// Web frontend URL (e.g., "https://www.cosmicvault.com").
+    /// Used to redirect email verification links for desktop/web users.
+    #[serde(default = "default_web_frontend_url")]
+    pub web_frontend_url: String,
+
+    // -------------------------------------------------------------------------
+    // Concurrency & Pool Configuration
+    // -------------------------------------------------------------------------
+    /// Maximum number of database connections in the pool.
+    /// Default: 20
+    #[serde(default = "default_database_pool_max")]
+    pub database_pool_max: u32,
+
+    /// Database connection acquire timeout in seconds.
+    /// Default: 5
+    #[serde(default = "default_database_acquire_timeout")]
+    pub database_acquire_timeout_secs: u64,
+
+    /// Maximum number of Redis/Valkey connections in the pool.
+    /// Default: 16
+    #[serde(default = "default_redis_pool_max")]
+    pub redis_pool_max: usize,
+
+    /// Number of async worker threads.
+    /// Default: 0 (auto-detect based on CPU cores)
+    /// Set to 0 to use the number of CPU cores.
+    /// Note: Uses WORKER_THREADS env var to avoid conflict with Tokio's built-in TOKIO_WORKER_THREADS.
+    #[serde(default = "default_worker_threads")]
+    pub worker_threads: usize,
 }
 
 fn default_jwt_expiry() -> i64 {
@@ -80,6 +115,31 @@ fn default_from_name() -> String {
 
 fn default_environment() -> AppEnvironment {
     AppEnvironment::Development
+}
+
+fn default_mobile_deep_link_scheme() -> String {
+    "cosmicvault://".to_string()
+}
+
+fn default_web_frontend_url() -> String {
+    "https://vault.cosmicvault.com".to_string()
+}
+
+fn default_database_pool_max() -> u32 {
+    20
+}
+
+fn default_database_acquire_timeout() -> u64 {
+    5
+}
+
+fn default_redis_pool_max() -> usize {
+    16
+}
+
+/// Default to 0, which means "auto-detect based on CPU cores".
+fn default_worker_threads() -> usize {
+    0
 }
 
 impl Settings {

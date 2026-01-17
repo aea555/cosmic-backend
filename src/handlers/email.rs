@@ -40,7 +40,7 @@ pub async fn send_verification_email(
     token: &str,
 ) -> AppResult<()> {
     let verification_link = format!(
-        "{}/api/v1/auth/verify-email?token={}",
+        "{}/api/v1/auth/verify-redirect?token={}",
         settings.app_url, token
     );
 

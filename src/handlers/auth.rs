@@ -214,3 +214,82 @@ pub async fn logout(
         data: None,
     }))
 }
+
+/// Redirects email verification to mobile app or web page based on User-Agent.
+///
+/// Params: AppState, token query param, request headers.
+/// Logic:
+///   1. Detects if request is from mobile (Android/iOS) via User-Agent.
+///   2. Mobile: Redirects to deep link (e.g., cosmicvault://verify-email?token=X).
+///   3. Desktop: Shows a simple HTML page with instructions.
+///
+/// GET /api/v1/auth/verify-redirect?token=X
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/verify-redirect",
+    params(
+        ("token" = String, Query, description = "Email verification token")
+    ),
+    responses(
+        (status = 302, description = "Redirects to mobile app deep link"),
+        (status = 200, description = "Shows web verification page"),
+        (status = 400, description = "Missing token")
+    ),
+    tag = "auth"
+)]
+pub async fn verify_redirect(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    use axum::response::{Html, IntoResponse, Redirect};
+
+    // Extract token from query params
+    let token = match params.get("token") {
+        Some(t) if !t.is_empty() => t,
+        _ => {
+            return Html(
+                r#"
+<!DOCTYPE html>
+<html>
+<head><title>Invalid Link</title></head>
+<body style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+    <h1>Invalid Verification Link</h1>
+    <p>The verification link is invalid or has expired.</p>
+</body>
+</html>"#,
+            )
+            .into_response();
+        }
+    };
+
+    // Check User-Agent for mobile detection
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let is_mobile = user_agent.contains("Android")
+        || user_agent.contains("iPhone")
+        || user_agent.contains("iPad")
+        || user_agent.contains("Mobile");
+
+    if is_mobile {
+        // Mobile: Redirect to mobile app deep link
+        let deep_link = format!(
+            "{}verify-email?token={}",
+            state.config.mobile_deep_link_scheme, token
+        );
+        tracing::debug!("Redirecting mobile user to deep link: {}", deep_link);
+        Redirect::temporary(&deep_link).into_response()
+    } else {
+        // Desktop: Redirect to web frontend with token
+        let web_url = format!(
+            "{}/verify-email?token={}",
+            state.config.web_frontend_url.trim_end_matches('/'),
+            token
+        );
+        tracing::debug!("Redirecting desktop user to web frontend: {}", web_url);
+        Redirect::temporary(&web_url).into_response()
+    }
+}

@@ -50,6 +50,7 @@ fn auth_routes(cache: RedisPool) -> Router<AppState> {
     // Medium rate limiting for other auth endpoints (10/min)
     let medium_routes = Router::new()
         .route("/verify-email", post(auth_handlers::verify_email))
+        .route("/verify-redirect", get(auth_handlers::verify_redirect))
         .route("/refresh", post(auth_handlers::refresh))
         .route("/logout", post(auth_handlers::logout))
         .layer(from_fn_with_state(

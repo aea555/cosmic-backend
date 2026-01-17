@@ -25,10 +25,14 @@ use tower_http::trace::TraceLayer;
 /// # Errors
 /// Returns error if database connection or migration fails.
 pub async fn build_app(settings: Settings) -> AppResult<Router> {
-    tracing::info!("Initializing database connection pool");
+    tracing::info!(
+        "Initializing database connection pool (max: {}, timeout: {}s)",
+        settings.database_pool_max,
+        settings.database_acquire_timeout_secs
+    );
     let db_pool = PgPoolOptions::new()
-        .max_connections(20)
-        .acquire_timeout(Duration::from_secs(5))
+        .max_connections(settings.database_pool_max)
+        .acquire_timeout(Duration::from_secs(settings.database_acquire_timeout_secs))
         .connect(settings.database_url.expose_secret())
         .await
         .map_err(|e| {
@@ -45,10 +49,20 @@ pub async fn build_app(settings: Settings) -> AppResult<Router> {
             crate::error::AppError::Internal(format!("Migration failed: {}", e))
         })?;
 
-    tracing::info!("Initializing Redis/Valkey connection pool");
+    tracing::info!(
+        "Initializing Redis/Valkey connection pool (max: {})",
+        settings.redis_pool_max
+    );
     let redis_config = RedisConfig::from_url(&settings.redis_url);
     let redis_pool = redis_config
-        .create_pool(Some(Runtime::Tokio1))
+        .builder()
+        .map_err(|e| {
+            tracing::error!("Failed to create Redis pool builder: {}", e);
+            crate::error::AppError::Internal(format!("Redis pool config failed: {}", e))
+        })?
+        .max_size(settings.redis_pool_max)
+        .runtime(Runtime::Tokio1)
+        .build()
         .map_err(|e| {
             tracing::error!("Failed to create Redis pool: {}", e);
             crate::error::AppError::Internal(format!("Redis pool creation failed: {}", e))

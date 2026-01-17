@@ -21,10 +21,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 /// Application entry point.
 ///
 /// Params: None.
-/// Logic: Loads env vars, initializes tracing, builds app, starts server.
+/// Logic: Loads env vars, initializes tracing, builds Tokio runtime with configured workers,
+///        builds app, starts server.
 /// Returns: Exit code (0 on success).
-#[tokio::main]
-async fn main() {
+fn main() {
     // Load environment variables from .env file if present
     if let Err(e) = dotenvy::dotenv() {
         eprintln!("Warning: Could not load .env file: {}", e);
@@ -50,6 +50,34 @@ async fn main() {
         }
     };
 
+    // Build Tokio runtime with configurable worker threads
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+
+    if settings.worker_threads > 0 {
+        tracing::info!(
+            "Configuring Tokio runtime with {} worker threads",
+            settings.worker_threads
+        );
+        runtime_builder.worker_threads(settings.worker_threads);
+    } else {
+        tracing::info!("Configuring Tokio runtime with auto-detected worker threads (CPU cores)");
+    }
+
+    let runtime = match runtime_builder.build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::error!("Failed to build Tokio runtime: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Run the async application on the configured runtime
+    runtime.block_on(async_main(settings));
+}
+
+/// Async main function that runs on the Tokio runtime.
+async fn async_main(settings: config::Settings) {
     let addr = settings.server_addr();
     tracing::info!("Server will bind to {}", addr);
 
