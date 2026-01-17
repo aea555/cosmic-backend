@@ -19,6 +19,13 @@ use crate::types::*;
         crate::handlers::secrets::get_secret,
         crate::handlers::secrets::update_secret,
         crate::handlers::secrets::delete_secret,
+
+        // Notes handlers
+        crate::handlers::notes::list_notes,
+        crate::handlers::notes::create_note,
+        crate::handlers::notes::get_note,
+        crate::handlers::notes::update_note,
+        crate::handlers::notes::delete_note,
     ),
     components(
         schemas(
@@ -31,19 +38,26 @@ use crate::types::*;
             CreateSecretRequest,
             UpdateSecretRequest,
             SecretResponse,
+            CreateNoteRequest,
+            UpdateNoteRequest,
+            NoteResponse,
             UserId,
             SecretId,
+            NoteId,
             
             // Response wrappers
             AuthResponseWrapper,
             SecretResponseWrapper,
             SecretListResponseWrapper,
+            NoteResponseWrapper,
+            NoteListResponseWrapper,
             EmptyResponseWrapper,
         )
     ),
     tags(
         (name = "auth", description = "Authentication endpoints"),
-        (name = "secrets", description = "Secret management endpoints")
+        (name = "secrets", description = "Secret management endpoints"),
+        (name = "notes", description = "Secure note management endpoints")
     ),
     modifiers(&SecurityAddon)
 )]

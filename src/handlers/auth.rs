@@ -4,14 +4,14 @@
 //! Handlers are thin and delegate to core business logic.
 
 use crate::core::auth;
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppJson, AppResult};
 use crate::handlers::email;
 use crate::state::AppState;
 use crate::types::{
     ApiResponse, AuthResponse, AuthResponseWrapper, EmptyResponseWrapper, LoginRequest,
     RefreshRequest, RegisterRequest, VerifyEmailRequest,
 };
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{Json, extract::State, http::StatusCode};
 use validator::Validate;
 
 /// Handles user registration.
@@ -34,7 +34,7 @@ use validator::Validate;
 )]
 pub async fn register(
     State(state): State<AppState>,
-    Json(request): Json<RegisterRequest>,
+    AppJson(request): AppJson<RegisterRequest>,
 ) -> AppResult<(StatusCode, Json<ApiResponse<()>>)> {
     request
         .validate()
@@ -85,8 +85,12 @@ pub async fn register(
 )]
 pub async fn verify_email(
     State(state): State<AppState>,
-    Json(request): Json<VerifyEmailRequest>,
+    AppJson(request): AppJson<VerifyEmailRequest>,
 ) -> AppResult<Json<ApiResponse<()>>> {
+    request
+        .validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
     auth::verify_email(&state.db, &request.token).await?;
 
     tracing::info!("Email verified successfully");
@@ -118,7 +122,7 @@ pub async fn verify_email(
 )]
 pub async fn login(
     State(state): State<AppState>,
-    Json(request): Json<LoginRequest>,
+    AppJson(request): AppJson<LoginRequest>,
 ) -> AppResult<Json<ApiResponse<AuthResponse>>> {
     request
         .validate()
@@ -157,8 +161,12 @@ pub async fn login(
 )]
 pub async fn refresh(
     State(state): State<AppState>,
-    Json(request): Json<RefreshRequest>,
+    AppJson(request): AppJson<RefreshRequest>,
 ) -> AppResult<Json<ApiResponse<AuthResponse>>> {
+    request
+        .validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
     let auth_response = auth::refresh_tokens(
         &state.db,
         &state.cache,
@@ -190,8 +198,12 @@ pub async fn refresh(
 )]
 pub async fn logout(
     State(state): State<AppState>,
-    Json(request): Json<RefreshRequest>,
+    AppJson(request): AppJson<RefreshRequest>,
 ) -> AppResult<Json<ApiResponse<()>>> {
+    request
+        .validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+
     auth::logout(&state.db, &state.cache, &request.refresh_token).await?;
 
     tracing::debug!("User logged out");

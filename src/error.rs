@@ -88,6 +88,10 @@ pub enum AppError {
     /// Internal server error (catch-all).
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// JSON parsing/deserialization failed.
+    #[error("Invalid request body")]
+    JsonParsing(String),
 }
 
 /// Error response body sent to clients.
@@ -223,6 +227,16 @@ impl IntoResponse for AppError {
                     "An internal error occurred".to_string(),
                 )
             }
+
+            // 422 Unprocessable Entity
+            AppError::JsonParsing(msg) => {
+                tracing::debug!("JSON parsing error: {}", msg);
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "INVALID_REQUEST_BODY",
+                    "Invalid request body format".to_string(),
+                )
+            }
         };
 
         let body = ErrorResponse {
@@ -237,3 +251,34 @@ impl IntoResponse for AppError {
 
 /// Result type alias using AppError.
 pub type AppResult<T> = Result<T, AppError>;
+
+// ----------------------------------------------------------------------------
+// Custom JSON Extractor
+// ----------------------------------------------------------------------------
+
+use axum::extract::{FromRequest, Request, rejection::JsonRejection};
+
+/// Custom JSON extractor that converts Axum's JsonRejection into AppError.
+///
+/// Params: Wraps the request body as type T.
+/// Logic: Intercepts JSON parsing failures and returns sanitized error messages.
+/// Returns: Parsed JSON or AppError::JsonParsing.
+pub struct AppJson<T>(pub T);
+
+impl<S, T> FromRequest<S> for AppJson<T>
+where
+    axum::Json<T>: FromRequest<S, Rejection = JsonRejection>,
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::Json::<T>::from_request(req, state).await {
+            Ok(value) => Ok(AppJson(value.0)),
+            Err(rejection) => {
+                // Log the full error for debugging, return sanitized message
+                Err(AppError::JsonParsing(rejection.body_text()))
+            }
+        }
+    }
+}

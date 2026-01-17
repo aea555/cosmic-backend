@@ -84,13 +84,13 @@ services:
     image: nginx:alpine
     container_name: cosmic-nginx
     ports:
-      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_PORT:-9090}:9090"
     volumes:
       - ../nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
       - ../nginx/cosmic_proxy.conf:/etc/nginx/cosmic_proxy.conf:ro,Z
-    # depends_on:
-    #   api:
-    #     condition: service_healthy
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

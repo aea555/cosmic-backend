@@ -5,16 +5,16 @@
 
 use crate::cache;
 use crate::core::{auth, vault};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppJson, AppResult};
 use crate::state::AppState;
 use crate::types::{
     ApiResponse, CreateSecretRequest, EmptyResponseWrapper, SecretListResponseWrapper,
     SecretResponse, SecretResponseWrapper, UpdateSecretRequest, UserId,
 };
 use axum::{
+    Extension, Json,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Extension, Json,
 };
 use uuid::Uuid;
 use validator::Validate;
@@ -145,7 +145,7 @@ pub async fn create_secret(
     State(state): State<AppState>,
     Extension(user_id): Extension<UserId>,
     headers: HeaderMap,
-    Json(request): Json<CreateSecretRequest>,
+    AppJson(request): AppJson<CreateSecretRequest>,
 ) -> AppResult<(StatusCode, Json<ApiResponse<SecretResponse>>)> {
     request
         .validate()
@@ -201,7 +201,7 @@ pub async fn update_secret(
     Path(secret_id): Path<Uuid>,
     Extension(user_id): Extension<UserId>,
     headers: HeaderMap,
-    Json(request): Json<UpdateSecretRequest>,
+    AppJson(request): AppJson<UpdateSecretRequest>,
 ) -> AppResult<Json<ApiResponse<SecretResponse>>> {
     request
         .validate()
@@ -236,7 +236,8 @@ pub async fn update_secret(
     delete,
     path = "/api/v1/secrets/{id}",
     params(
-        ("id" = Uuid, Path, description = "Secret ID")
+        ("id" = Uuid, Path, description = "Secret ID"),
+        ("X-Master-Password" = String, Header, description = "Master Password for verification")
     ),
     responses(
         (status = 200, description = "Secret deleted", body = EmptyResponseWrapper),
@@ -244,7 +245,8 @@ pub async fn update_secret(
         (status = 404, description = "Secret not found", body = EmptyResponseWrapper)
     ),
     security(
-        ("bearer_auth" = [])
+        ("bearer_auth" = []),
+        ("master_password_auth" = [])
     ),
     tag = "secrets"
 )]
@@ -252,7 +254,15 @@ pub async fn delete_secret(
     State(state): State<AppState>,
     Path(secret_id): Path<Uuid>,
     Extension(user_id): Extension<UserId>,
+    headers: HeaderMap,
 ) -> AppResult<Json<ApiResponse<()>>> {
+    let password = extract_master_password(&headers)?;
+
+    // Verify Master Password (Canary Check) before allowing deletion
+    // We don't need the key for deletion, but we MUST verify the user has it.
+    let _ = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
+        .await?;
+
     vault::delete_secret(&state.db, secret_id, user_id.into_inner()).await?;
 
     // Invalidate secrets cache after delete

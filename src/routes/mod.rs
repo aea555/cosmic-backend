@@ -6,6 +6,7 @@
 use crate::handlers::{auth as auth_handlers, secrets as secrets_handlers};
 use crate::middleware;
 use crate::state::AppState;
+use axum::response::IntoResponse;
 use axum::{
     Router,
     middleware::from_fn_with_state,
@@ -20,8 +21,15 @@ use deadpool_redis::Pool as RedisPool;
 /// Returns: Configured Router.
 pub fn api_routes(state: AppState) -> Router<AppState> {
     Router::new()
+        .route("/health", get(health_check))
         .nest("/auth", auth_routes(state.cache.clone()))
         .nest("/secrets", secrets_routes(state.clone()))
+        .nest("/notes", notes_routes(state.clone()))
+}
+
+/// Simple health check handler.
+async fn health_check() -> impl IntoResponse {
+    axum::http::StatusCode::OK
 }
 
 /// Builds authentication routes (public, with rate limiting).
@@ -64,6 +72,28 @@ fn secrets_routes(state: AppState) -> Router<AppState> {
         .route("/{id}", get(secrets_handlers::get_secret))
         .route("/{id}", put(secrets_handlers::update_secret))
         .route("/{id}", delete(secrets_handlers::delete_secret))
+        // Order matters: JWT first (to get user_id), then user rate limit
+        .layer(from_fn_with_state(
+            state.cache.clone(),
+            middleware::user_rate_limit,
+        ))
+        .layer(from_fn_with_state(state, middleware::jwt_auth))
+}
+
+/// Builds notes routes (protected by JWT middleware with user rate limiting).
+///
+/// Params: AppState for middleware.
+/// Logic: CRUD routes for notes with JWT auth + per-user rate limiting.
+/// Returns: Notes router.
+fn notes_routes(state: AppState) -> Router<AppState> {
+    use crate::handlers::notes as notes_handlers;
+
+    Router::new()
+        .route("/", get(notes_handlers::list_notes))
+        .route("/", post(notes_handlers::create_note))
+        .route("/{id}", get(notes_handlers::get_note))
+        .route("/{id}", put(notes_handlers::update_note))
+        .route("/{id}", delete(notes_handlers::delete_note))
         // Order matters: JWT first (to get user_id), then user rate limit
         .layer(from_fn_with_state(
             state.cache.clone(),

@@ -100,6 +100,36 @@ impl std::fmt::Display for SecretId {
     }
 }
 
+/// Unique identifier for a note entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ToSchema)]
+#[sqlx(transparent)]
+#[schema(value_type = String, example = "550e8400-e29b-41d4-a716-446655440000")]
+pub struct NoteId(pub Uuid);
+
+impl NoteId {
+    #[must_use]
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    #[must_use]
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl Default for NoteId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for NoteId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// A cryptographic salt used for key derivation.
 ///
 /// Params: Wraps a 32-byte array.
@@ -291,6 +321,16 @@ pub struct Secret {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Note entity from database.
+#[derive(Debug, Clone, FromRow)]
+pub struct Note {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub encrypted_data: Vec<u8>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Refresh token entity from database.
 ///
 /// Params: Contains hashed refresh token data.
@@ -324,8 +364,9 @@ pub struct RegisterRequest {
 /// Params: Verification token from email link.
 /// Logic: Token is validated against database.
 /// Returns: Verification request.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct VerifyEmailRequest {
+    #[validate(length(min = 1, message = "Token cannot be empty"))]
     pub token: String,
 }
 
@@ -359,8 +400,9 @@ pub struct AuthResponse {
 /// Params: Refresh token string.
 /// Logic: Token is rotated on each use.
 /// Returns: Refresh request.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct RefreshRequest {
+    #[validate(length(min = 1, message = "Token cannot be empty"))]
     pub refresh_token: String,
 }
 
@@ -371,15 +413,28 @@ pub struct RefreshRequest {
 /// Returns: Create secret request.
 #[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
 pub struct CreateSecretRequest {
-    #[validate(length(min = 1, max = 255, message = "Title must be 1-255 characters"))]
-    pub title: String,
+    #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 255, message = "Username must be at most 255 characters"))]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 20, message = "Telephone number must be at most 20 characters"))]
+    pub telephone_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 2048, message = "Password too long"))]
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(
+        url(message = "Invalid URL format"),
+        length(max = 2048, message = "URL must be at most 2048 characters")
+    )]
     pub url: Option<String>,
 }
 
@@ -390,16 +445,47 @@ pub struct CreateSecretRequest {
 /// Returns: Update secret request.
 #[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
 pub struct UpdateSecretRequest {
-    #[validate(length(min = 1, max = 255, message = "Title must be 1-255 characters"))]
-    pub title: String,
+    #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 255, message = "Username must be at most 255 characters"))]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 20, message = "Telephone number must be at most 20 characters"))]
+    pub telephone_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(length(max = 2048, message = "Password too long"))]
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[validate(
+        url(message = "Invalid URL format"),
+        length(max = 2048, message = "URL must be at most 2048 characters")
+    )]
     pub url: Option<String>,
+}
+
+/// Request payload for creating a new note.
+#[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
+pub struct CreateNoteRequest {
+    #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
+    pub title: Option<String>,
+    #[validate(length(max = 25600, message = "Content must be at most 25600 characters"))]
+    pub content: Option<String>,
+}
+
+/// Request payload for updating an existing note.
+#[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
+pub struct UpdateNoteRequest {
+    #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
+    pub title: Option<String>,
+    #[validate(length(max = 25600, message = "Content must be at most 25600 characters"))]
+    pub content: Option<String>,
 }
 
 /// Response payload for a decrypted secret.
@@ -410,15 +496,28 @@ pub struct UpdateSecretRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SecretResponse {
     pub id: SecretId,
-    pub title: String,
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telephone_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Response payload for a decrypted note.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NoteResponse {
+    pub id: NoteId,
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -507,6 +606,22 @@ pub struct SecretListResponseWrapper {
     pub success: bool,
     pub message: Option<String>,
     pub data: Option<Vec<SecretResponse>>,
+}
+
+#[derive(ToSchema)]
+pub struct NoteResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<NoteResponse>,
+}
+
+#[derive(ToSchema)]
+pub struct NoteListResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<Vec<NoteResponse>>,
 }
 
 #[derive(ToSchema)]

@@ -5,4 +5,5 @@
 
 pub mod auth;
 pub mod email;
+pub mod notes;
 pub mod secrets;
