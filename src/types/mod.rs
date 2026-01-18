@@ -346,6 +346,29 @@ pub struct RefreshToken {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Validates password complexity:
+/// - At least 1 uppercase letter
+/// - At least 1 lowercase letter
+/// - At least 1 number
+/// - At least 1 special character (non-alphanumeric)
+fn validate_password_complexity(password: &str) -> Result<(), validator::ValidationError> {
+    let has_uppercase = password.chars().any(|c| c.is_uppercase());
+    let has_lowercase = password.chars().any(|c| c.is_lowercase());
+    let has_number = password.chars().any(|c| c.is_numeric());
+    let has_special = password.chars().any(|c| !c.is_alphanumeric());
+
+    if has_uppercase && has_lowercase && has_number && has_special {
+        Ok(())
+    } else {
+        let mut error = validator::ValidationError::new("invalid_password_complexity");
+        error.message = Some(
+            "Password must contain at least 1 uppercase, 1 lowercase, 1 number, and 1 special character"
+                .into(),
+        );
+        Err(error)
+    }
+}
+
 /// Request payload for user registration.
 ///
 /// Params: Email and master password.
@@ -353,9 +376,19 @@ pub struct RefreshToken {
 /// Returns: Registration request.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct RegisterRequest {
-    #[validate(email(message = "Invalid email format"))]
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
     pub email: String,
-    #[validate(length(min = 12, message = "Password must be at least 12 characters"))]
+    #[validate(
+        length(
+            min = 12,
+            max = 256,
+            message = "Password must be between 12 and 256 characters"
+        ),
+        custom(function = "validate_password_complexity")
+    )]
     pub password: String,
 }
 
@@ -366,7 +399,7 @@ pub struct RegisterRequest {
 /// Returns: Verification request.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct VerifyEmailRequest {
-    #[validate(length(min = 1, message = "Token cannot be empty"))]
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
     pub token: String,
 }
 
@@ -377,7 +410,10 @@ pub struct VerifyEmailRequest {
 /// Returns: Resend request.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct ResendVerificationRequest {
-    #[validate(email(message = "Invalid email format"))]
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
     pub email: String,
 }
 
@@ -388,8 +424,12 @@ pub struct ResendVerificationRequest {
 /// Returns: Login request.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct LoginRequest {
-    #[validate(email(message = "Invalid email format"))]
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
     pub email: String,
+    #[validate(length(max = 256, message = "Password too long"))]
     pub password: String,
 }
 
@@ -413,7 +453,7 @@ pub struct AuthResponse {
 /// Returns: Refresh request.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct RefreshRequest {
-    #[validate(length(min = 1, message = "Token cannot be empty"))]
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
     pub refresh_token: String,
 }
 

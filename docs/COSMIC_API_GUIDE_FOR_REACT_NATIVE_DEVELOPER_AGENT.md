@@ -517,6 +517,22 @@ async function apiRequest(endpoint, options = {}) {
 | Verify/Refresh/Logout | 10/minute |
 | Protected routes | 100/minute per user |
 
+### Password Requirements
+The backend enforces the following validation rules for the Master Password:
+- **Minimum Length:** 12 characters
+- **Maximum Length:** 256 characters
+- **Complexity:**
+  - At least 1 Uppercase Letter
+  - At least 1 Lowercase Letter
+  - At least 1 Number
+  - At least 1 Special Character (non-alphanumeric)
+
+### Input Constraints
+- **Global Payload Size:** 1MB max (JSON body)
+- **Email Address:** Max 320 characters
+- **Auth Tokens:** Max 128 characters
+- **Secrets/Notes:** Encrypted blobs have higher limits, but titles/metadata are strictly bounded.
+
 ---
 
 ## Quick Reference
