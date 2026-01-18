@@ -351,13 +351,66 @@ pub async fn verify_redirect(
         || user_agent.contains("Mobile");
 
     if is_mobile {
-        // Mobile: Redirect to mobile app deep link
+        // Mobile: Serve interstitial page to trigger deep link
+        // Direct 302 redirects often fail in webviews (like Gmail) due to security policies.
+        // An HTML page with a user gesture (click) is much more reliable.
         let deep_link = format!(
             "{}verify-email?token={}",
             state.config.mobile_deep_link_scheme, token
         );
-        tracing::debug!("Redirecting mobile user to deep link: {}", deep_link);
-        Redirect::temporary(&deep_link).into_response()
+        tracing::debug!("Serving mobile interstitial for deep link: {}", deep_link);
+
+        Html(format!(
+            r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Open App</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify_content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+            text-align: center;
+        }}
+        .button {{
+            background-color: #4f46e5;
+            color: white;
+            padding: 16px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 18px;
+            margin-top: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        p {{ color: #666; margin-bottom: 30px; }}
+    </style>
+</head>
+<body>
+    <h1>Verify Your Email</h1>
+    <p>Click the button below to open the Cosmic Vault app and complete verification.</p>
+    <a href="{}" class="button">Open App</a>
+    
+    <script>
+        // Try to auto-open after a short delay
+        setTimeout(function() {{
+            window.location.href = "{}";
+        }}, 1000);
+    </script>
+</body>
+</html>
+"#,
+            deep_link, deep_link
+        ))
+        .into_response()
     } else {
         // Desktop: Redirect to web frontend with token
         let web_url = format!(
