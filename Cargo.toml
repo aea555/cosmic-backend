@@ -4,3 +4,76 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Core Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web Framework
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "compression-gzip"] }
+
+# Documentation (Dev only)
+utoipa = { version = "5.3", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-scalar = { version = "0.3", features = ["axum"] }
+
+# Database
+sqlx = { version = "0.8", features = [
+    "runtime-tokio",
+    "tls-rustls",
+    "postgres",
+    "uuid",
+    "chrono"
+] }
+
+# Cache (Valkey/Redis)
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+deadpool-redis = "0.18"
+
+# Cryptography
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+
+# Security
+secrecy = { version = "0.10", features = ["serde"] }
+
+# Authentication
+jsonwebtoken = "9"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error Handling
+thiserror = "2"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Validation
+validator = { version = "0.19", features = ["derive"] }
+
+# Concurrency
+rayon = "1"
+
+# Configuration
+config = "0.15"
+dotenvy = "0.15"
+
+# Email (Mailtrap HTTP API)
+reqwest = { version = "0.12", features = ["json"] }
+
+# Encoding
+hex = "0.4"
+base64 = "0.22"
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
