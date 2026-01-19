@@ -438,6 +438,8 @@ DELETE /api/v1/notes/{id}
 |------|------|---------|----------------------|
 | 400 | `VALIDATION_ERROR` | Invalid input | "Please check your input and try again" |
 | 401 | `INVALID_CREDENTIALS` | Wrong email/password | "Invalid email or password" |
+| 401 | `MISSING_AUTH_HEADER` | No Authorization header | "Please log in to continue" |
+| 401 | `INVALID_AUTH_FORMAT` | Malformed Authorization | "Please log in again" |
 | 401 | `INVALID_TOKEN` | JWT expired/invalid | "Session expired. Please log in again" |
 | 401 | `MASTER_PASSWORD_REQUIRED` | Missing header | "Master password is required" |
 | 403 | `TOKEN_REUSED` | Refresh token reused | "Security alert: Please log in again" |
