@@ -267,3 +267,103 @@ pub async fn delete_note(
         data: None,
     }))
 }
+
+/// Favorites a note.
+///
+/// PUT /api/v1/notes/:id/favorite
+#[utoipa::path(
+    put,
+    path = "/api/v1/notes/{id}/favorite",
+    params(
+        ("id" = Uuid, Path, description = "Note ID"),
+        ("X-Master-Password" = String, Header, description = "Master Password")
+    ),
+    responses(
+        (status = 200, description = "Note favorited", body = EmptyResponseWrapper),
+        (status = 401, description = "Unauthorized", body = EmptyResponseWrapper),
+        (status = 404, description = "Note not found", body = EmptyResponseWrapper)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("master_password_auth" = [])
+    ),
+    tag = "notes"
+)]
+pub async fn favorite_note(
+    State(state): State<AppState>,
+    Path(note_id): Path<Uuid>,
+    Extension(user_id): Extension<UserId>,
+    headers: HeaderMap,
+) -> AppResult<Json<ApiResponse<()>>> {
+    let password = extract_master_password(&headers)?;
+
+    // Verify Master Password
+    let _ = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
+        .await?;
+
+    // Update favorite status
+    crate::repository::note::update_favorite(&state.db, note_id, user_id.into_inner(), true)
+        .await?;
+
+    // Invalidate caches
+    let _ = cache::invalidate_notes(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_note_by_id(&state.cache, note_id).await;
+
+    tracing::info!("Note favorited: {}", note_id);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: Some("Note favorited".to_string()),
+        data: None,
+    }))
+}
+
+/// Unfavorites a note.
+///
+/// PUT /api/v1/notes/:id/unfavorite
+#[utoipa::path(
+    put,
+    path = "/api/v1/notes/{id}/unfavorite",
+    params(
+        ("id" = Uuid, Path, description = "Note ID"),
+        ("X-Master-Password" = String, Header, description = "Master Password")
+    ),
+    responses(
+        (status = 200, description = "Note unfavorited", body = EmptyResponseWrapper),
+        (status = 401, description = "Unauthorized", body = EmptyResponseWrapper),
+        (status = 404, description = "Note not found", body = EmptyResponseWrapper)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("master_password_auth" = [])
+    ),
+    tag = "notes"
+)]
+pub async fn unfavorite_note(
+    State(state): State<AppState>,
+    Path(note_id): Path<Uuid>,
+    Extension(user_id): Extension<UserId>,
+    headers: HeaderMap,
+) -> AppResult<Json<ApiResponse<()>>> {
+    let password = extract_master_password(&headers)?;
+
+    // Verify Master Password
+    let _ = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
+        .await?;
+
+    // Update favorite status
+    crate::repository::note::update_favorite(&state.db, note_id, user_id.into_inner(), false)
+        .await?;
+
+    // Invalidate caches
+    let _ = cache::invalidate_notes(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_note_by_id(&state.cache, note_id).await;
+
+    tracing::info!("Note unfavorited: {}", note_id);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: Some("Note unfavorited".to_string()),
+        data: None,
+    }))
+}

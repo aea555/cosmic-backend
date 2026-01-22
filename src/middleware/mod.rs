@@ -5,6 +5,7 @@
 pub mod rate_limit;
 
 use crate::core::auth;
+use crate::repository;
 use crate::state::AppState;
 #[allow(unused_imports)] // Used via generic insert() for request extensions
 use crate::types::UserId;
@@ -51,7 +52,7 @@ fn unauthorized_response(error: &str, code: &str) -> Response {
 /// JWT authentication middleware.
 ///
 /// Params: AppState, request, next middleware.
-/// Logic: Extracts Bearer token, validates JWT, injects UserId into extensions.
+/// Logic: Extracts Bearer token, validates JWT, checks token version against DB, injects UserId.
 /// Returns: Response from next handler or 401 Unauthorized.
 pub async fn jwt_auth(
     State(state): State<AppState>,
@@ -63,12 +64,24 @@ pub async fn jwt_auth(
         Err(response) => return response,
     };
 
-    let user_id = match auth::validate_access_token(&token, &state.config) {
-        Ok(id) => id,
+    let (user_id, token_version) = match auth::validate_access_token(&token, &state.config) {
+        Ok(data) => data,
         Err(_) => {
             return unauthorized_response("Invalid or expired token", "INVALID_TOKEN");
         }
     };
+
+    // Verify token version against database (invalidates tokens on password/email change)
+    let user = match repository::user::find_by_id(&state.db, user_id.0).await {
+        Ok(u) => u,
+        Err(_) => {
+            return unauthorized_response("User not found", "USER_NOT_FOUND");
+        }
+    };
+
+    if user.token_version != token_version {
+        return unauthorized_response("Token revoked", "TOKEN_REVOKED");
+    }
 
     // Inject user_id into request extensions for handlers to use
     request.extensions_mut().insert(user_id);

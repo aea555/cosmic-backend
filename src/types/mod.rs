@@ -289,6 +289,7 @@ pub struct User {
     pub salt: Vec<u8>,
     pub encrypted_canary: Vec<u8>,
     pub email_verified: bool,
+    pub token_version: i32,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -317,6 +318,7 @@ pub struct Secret {
     pub id: Uuid,
     pub user_id: Uuid,
     pub encrypted_data: Vec<u8>,
+    pub is_favorite: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -327,8 +329,42 @@ pub struct Note {
     pub id: Uuid,
     pub user_id: Uuid,
     pub encrypted_data: Vec<u8>,
+    pub is_favorite: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// OTP request entity from database.
+///
+/// Params: Contains OTP hash and request metadata.
+/// Logic: Used for account deletion, password change, email change.
+/// Returns: OTP request record.
+#[derive(Debug, Clone, FromRow)]
+pub struct OtpRequest {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub otp_hash: Vec<u8>,
+    pub request_type: String,
+    pub new_email: Option<String>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Item type for bulk operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemType {
+    Secret,
+    Note,
+}
+
+impl std::fmt::Display for ItemType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ItemType::Secret => write!(f, "secret"),
+            ItemType::Note => write!(f, "note"),
+        }
+    }
 }
 
 /// Refresh token entity from database.
@@ -457,12 +493,35 @@ pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
+/// Validates that a secret has at least one identifier (title, username, email, url, password, or telephone_number).
+fn validate_secret_requirements(
+    request: &CreateSecretRequest,
+) -> Result<(), validator::ValidationError> {
+    if request.title.is_some()
+        || request.username.is_some()
+        || request.email.is_some()
+        || request.url.is_some()
+        || request.password.is_some()
+        || request.telephone_number.is_some()
+    {
+        Ok(())
+    } else {
+        let mut error = validator::ValidationError::new("missing_required_fields");
+        error.message = Some(
+            "Secret must have at least a title, username, email, URL, password, or telephone number"
+                .into(),
+        );
+        Err(error)
+    }
+}
+
 /// Request payload for creating a new secret.
 ///
 /// Params: Secret data to be encrypted.
 /// Logic: Data is encrypted with Master Key before storage.
 /// Returns: Create secret request.
 #[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
+#[validate(schema(function = "validate_secret_requirements"))]
 pub struct CreateSecretRequest {
     #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
     pub title: Option<String>,
@@ -524,7 +583,10 @@ pub struct UpdateSecretRequest {
 /// Request payload for creating a new note.
 #[derive(Debug, Deserialize, Serialize, validator::Validate, ToSchema)]
 pub struct CreateNoteRequest {
-    #[validate(length(min = 1, max = 256, message = "Title must be 1-256 characters"))]
+    #[validate(
+        required(message = "Title is required"),
+        length(min = 1, max = 256, message = "Title must be 1-256 characters")
+    )]
     pub title: Option<String>,
     #[validate(length(max = 25600, message = "Content must be at most 25600 characters"))]
     pub content: Option<String>,
@@ -558,6 +620,7 @@ pub struct SecretResponse {
     pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    pub is_favorite: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -569,6 +632,7 @@ pub struct NoteResponse {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    pub is_favorite: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -582,6 +646,7 @@ pub struct NoteResponse {
 pub struct Claims {
     pub sub: String,
     pub user_id: Uuid,
+    pub token_version: i32,
     pub exp: usize,
     pub iat: usize,
 }
@@ -683,4 +748,170 @@ pub struct EmptyResponseWrapper {
     pub message: Option<String>,
     #[schema(nullable = true)]
     pub data: Option<()>,
+}
+
+// ----------------------------------------------------------------------------
+// BULK OPERATIONS
+// ----------------------------------------------------------------------------
+
+/// Request item for bulk create operations.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct BulkCreateItem {
+    pub item_type: ItemType,
+    pub data: serde_json::Value,
+}
+
+/// Request payload for bulk create items.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct BulkCreateRequest {
+    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    pub items: Vec<BulkCreateItem>,
+}
+
+/// Response item for bulk create operations.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BulkCreateResultItem {
+    pub id: Uuid,
+    pub item_type: ItemType,
+}
+
+/// Response payload for bulk create operations.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BulkCreateResponse {
+    pub created_count: usize,
+    pub items: Vec<BulkCreateResultItem>,
+}
+
+/// Request item for bulk delete operations.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct BulkDeleteItem {
+    pub id: Uuid,
+    pub item_type: ItemType,
+}
+
+/// Request payload for bulk delete items.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct BulkDeleteRequest {
+    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    pub items: Vec<BulkDeleteItem>,
+}
+
+/// Response payload for bulk delete operations.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BulkDeleteResponse {
+    pub deleted_count: usize,
+}
+
+/// Request item for bulk favorite operations.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct BulkFavoriteItem {
+    pub id: Uuid,
+    pub item_type: ItemType,
+}
+
+/// Request payload for bulk favorite/unfavorite.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct BulkFavoriteRequest {
+    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    pub items: Vec<BulkFavoriteItem>,
+}
+
+/// Response payload for bulk favorite operations.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BulkFavoriteResponse {
+    pub updated_count: usize,
+}
+
+// ----------------------------------------------------------------------------
+// ACCOUNT MANAGEMENT
+// ----------------------------------------------------------------------------
+
+/// Request payload for initiating account deletion.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct DeleteAccountRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+}
+
+/// Request payload for confirming account deletion with OTP.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ConfirmDeleteAccountRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+    #[validate(length(equal = 6, message = "OTP must be 6 digits"))]
+    pub otp: String,
+}
+
+/// Request payload for initiating password change.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ChangePasswordRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+}
+
+/// Request payload for confirming password change with OTP.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ConfirmChangePasswordRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+    #[validate(length(equal = 6, message = "OTP must be 6 digits"))]
+    pub otp: String,
+    #[validate(
+        length(
+            min = 12,
+            max = 256,
+            message = "New password must be between 12 and 256 characters"
+        ),
+        custom(function = "validate_password_complexity")
+    )]
+    pub new_password: String,
+}
+
+/// Request payload for initiating email change.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ChangeEmailRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+    #[validate(
+        email(message = "Invalid email format"),
+        length(max = 320, message = "Email must be at most 320 characters")
+    )]
+    pub new_email: String,
+}
+
+/// Request payload for confirming email change with OTP.
+#[derive(Debug, Deserialize, validator::Validate, ToSchema)]
+pub struct ConfirmChangeEmailRequest {
+    #[validate(length(min = 1, max = 128, message = "Token must be 1-128 characters"))]
+    pub refresh_token: String,
+    #[validate(length(equal = 6, message = "OTP must be 6 digits"))]
+    pub otp: String,
+}
+
+// ----------------------------------------------------------------------------
+// OPENAPI WRAPPERS FOR NEW TYPES
+// ----------------------------------------------------------------------------
+
+#[derive(ToSchema)]
+pub struct BulkCreateResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<BulkCreateResponse>,
+}
+
+#[derive(ToSchema)]
+pub struct BulkDeleteResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<BulkDeleteResponse>,
+}
+
+#[derive(ToSchema)]
+pub struct BulkFavoriteResponseWrapper {
+    #[schema(example = true)]
+    pub success: bool,
+    pub message: Option<String>,
+    pub data: Option<BulkFavoriteResponse>,
 }

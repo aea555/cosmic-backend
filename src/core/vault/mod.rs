@@ -67,6 +67,7 @@ pub async fn update_secret(
         telephone_number: request.telephone_number,
         password: request.password,
         url: request.url,
+        is_favorite: secret.is_favorite,
         created_at: secret.created_at,
         updated_at: secret.updated_at,
     })
@@ -223,6 +224,7 @@ pub async fn update_note(
         id: NoteId(note.id),
         title: request.title,
         content: request.content,
+        is_favorite: note.is_favorite,
         created_at: note.created_at,
         updated_at: note.updated_at,
     })
@@ -361,6 +363,7 @@ fn decrypt_secret_to_response(secret: Secret, key: &MasterKey) -> AppResult<Secr
         telephone_number: data.telephone_number,
         password: data.password,
         url: data.url,
+        is_favorite: secret.is_favorite,
         created_at: secret.created_at,
         updated_at: secret.updated_at,
     })
@@ -378,6 +381,7 @@ fn build_secret_response(
         telephone_number: request.telephone_number,
         password: request.password,
         url: request.url,
+        is_favorite: secret.is_favorite,
         created_at: secret.created_at,
         updated_at: secret.updated_at,
     })
@@ -394,6 +398,7 @@ fn decrypt_note_to_response(note: Note, key: &MasterKey) -> AppResult<NoteRespon
         id: NoteId(note.id),
         title: data.title,
         content: data.content,
+        is_favorite: note.is_favorite,
         created_at: note.created_at,
         updated_at: note.updated_at,
     })
@@ -404,6 +409,7 @@ fn build_note_response(note: Note, request: CreateNoteRequest) -> AppResult<Note
         id: NoteId(note.id),
         title: request.title,
         content: request.content,
+        is_favorite: note.is_favorite,
         created_at: note.created_at,
         updated_at: note.updated_at,
     })

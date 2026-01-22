@@ -4,6 +4,7 @@
 //! No business logic belongs here - only database queries.
 
 pub mod note;
+pub mod otp;
 pub mod secret;
 pub mod token;
 pub mod user;
