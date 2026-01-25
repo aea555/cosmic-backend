@@ -764,7 +764,11 @@ pub struct BulkCreateItem {
 /// Request payload for bulk create items.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct BulkCreateRequest {
-    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    #[validate(length(
+        min = 1,
+        max = 3000,
+        message = "Items count must be between 1 and 3000"
+    ))]
     pub items: Vec<BulkCreateItem>,
 }
 
@@ -792,7 +796,11 @@ pub struct BulkDeleteItem {
 /// Request payload for bulk delete items.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct BulkDeleteRequest {
-    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    #[validate(length(
+        min = 1,
+        max = 3000,
+        message = "Items count must be between 1 and 3000"
+    ))]
     pub items: Vec<BulkDeleteItem>,
 }
 
@@ -812,7 +820,11 @@ pub struct BulkFavoriteItem {
 /// Request payload for bulk favorite/unfavorite.
 #[derive(Debug, Deserialize, validator::Validate, ToSchema)]
 pub struct BulkFavoriteRequest {
-    #[validate(length(min = 1, max = 100, message = "Items count must be between 1 and 100"))]
+    #[validate(length(
+        min = 1,
+        max = 3000,
+        message = "Items count must be between 1 and 3000"
+    ))]
     pub items: Vec<BulkFavoriteItem>,
 }
 

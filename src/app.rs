@@ -118,7 +118,7 @@ fn build_router(state: AppState) -> Router {
         .nest("/api/v1", routes::api_routes(state.clone()))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
-        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 1MB Limit
+        .layer(axum::extract::DefaultBodyLimit::max(5 * 1024 * 1024)) // 5MB Limit
         .layer(cors)
         .with_state(state.clone());
 
