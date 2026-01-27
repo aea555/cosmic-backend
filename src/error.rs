@@ -103,6 +103,10 @@ pub enum AppError {
     /// JSON parsing/deserialization failed.
     #[error("Invalid request body")]
     JsonParsing(String),
+
+    /// OTP is invalid or expired.
+    #[error("Invalid OTP")]
+    InvalidOtp,
 }
 
 /// Error response body sent to clients.
@@ -265,6 +269,13 @@ impl IntoResponse for AppError {
                     "Invalid request body format".to_string(),
                 )
             }
+
+            // 401 Unauthorized - Invalid OTP
+            AppError::InvalidOtp => (
+                StatusCode::UNAUTHORIZED,
+                "INVALID_OTP",
+                "OTP is invalid or expired".to_string(),
+            ),
         };
 
         let body = ErrorResponse {

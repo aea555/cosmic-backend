@@ -29,7 +29,7 @@ pub async fn exists_by_email(pool: &PgPool, email: &str) -> AppResult<bool> {
 /// Returns: User if found, UserNotFound error otherwise.
 pub async fn find_by_email(pool: &PgPool, email: &str) -> AppResult<User> {
     sqlx::query_as::<_, User>(
-        "SELECT id, email, salt, encrypted_canary, email_verified, created_at, updated_at
+        "SELECT id, email, salt, encrypted_canary, email_verified, token_version, created_at, updated_at
          FROM users
          WHERE email = $1",
     )
@@ -46,7 +46,7 @@ pub async fn find_by_email(pool: &PgPool, email: &str) -> AppResult<User> {
 /// Returns: User if found, UserNotFound error otherwise.
 pub async fn find_by_id(pool: &PgPool, id: Uuid) -> AppResult<User> {
     sqlx::query_as::<_, User>(
-        "SELECT id, email, salt, encrypted_canary, email_verified, created_at, updated_at
+        "SELECT id, email, salt, encrypted_canary, email_verified, token_version, created_at, updated_at
          FROM users
          WHERE id = $1",
     )
@@ -70,7 +70,7 @@ pub async fn create(
     sqlx::query_as::<_, User>(
         "INSERT INTO users (email, salt, encrypted_canary)
          VALUES ($1, $2, $3)
-         RETURNING id, email, salt, encrypted_canary, email_verified, created_at, updated_at",
+         RETURNING id, email, salt, encrypted_canary, email_verified, token_version, created_at, updated_at",
     )
     .bind(email)
     .bind(salt)
@@ -101,6 +101,20 @@ pub async fn mark_email_verified(pool: &PgPool, user_id: Uuid) -> AppResult<()> 
     .bind(user_id)
     .execute(pool)
     .await?;
+
+    Ok(())
+}
+
+/// Deletes a user by ID.
+///
+/// Params: Database pool, user UUID.
+/// Logic: Deletes user record. Cascades to delete secrets, notes, tokens.
+/// Returns: Unit on success.
+pub async fn delete(pool: &PgPool, user_id: Uuid) -> AppResult<()> {
+    sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }

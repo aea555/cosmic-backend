@@ -286,3 +286,107 @@ pub async fn delete_secret(
         data: None,
     }))
 }
+
+/// Favorites a secret.
+///
+/// Params: AppState, secret ID path param, user ID from JWT, request headers.
+/// Logic: Verifies ownership and Master Password, sets is_favorite to true.
+/// Returns: 200 OK with confirmation.
+///
+/// PUT /api/v1/secrets/:id/favorite
+#[utoipa::path(
+    put,
+    path = "/api/v1/secrets/{id}/favorite",
+    params(
+        ("id" = Uuid, Path, description = "Secret ID"),
+        ("X-Master-Password" = String, Header, description = "Master Password")
+    ),
+    responses(
+        (status = 200, description = "Secret favorited", body = EmptyResponseWrapper),
+        (status = 401, description = "Unauthorized", body = EmptyResponseWrapper),
+        (status = 404, description = "Secret not found", body = EmptyResponseWrapper)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("master_password_auth" = [])
+    ),
+    tag = "secrets"
+)]
+pub async fn favorite_secret(
+    State(state): State<AppState>,
+    Path(secret_id): Path<Uuid>,
+    Extension(user_id): Extension<UserId>,
+    headers: HeaderMap,
+) -> AppResult<Json<ApiResponse<()>>> {
+    let password = extract_master_password(&headers)?;
+
+    // Verify Master Password
+    let _ = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
+        .await?;
+
+    // Update favorite status
+    crate::repository::secret::update_favorite(&state.db, secret_id, user_id.into_inner(), true)
+        .await?;
+
+    // Invalidate caches
+    let _ = cache::invalidate_secrets(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_secret_by_id(&state.cache, secret_id).await;
+
+    tracing::info!("Secret favorited: {}", secret_id);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: Some("Secret favorited".to_string()),
+        data: None,
+    }))
+}
+
+/// Unfavorites a secret.
+///
+/// PUT /api/v1/secrets/:id/unfavorite
+#[utoipa::path(
+    put,
+    path = "/api/v1/secrets/{id}/unfavorite",
+    params(
+        ("id" = Uuid, Path, description = "Secret ID"),
+        ("X-Master-Password" = String, Header, description = "Master Password")
+    ),
+    responses(
+        (status = 200, description = "Secret unfavorited", body = EmptyResponseWrapper),
+        (status = 401, description = "Unauthorized", body = EmptyResponseWrapper),
+        (status = 404, description = "Secret not found", body = EmptyResponseWrapper)
+    ),
+    security(
+        ("bearer_auth" = []),
+        ("master_password_auth" = [])
+    ),
+    tag = "secrets"
+)]
+pub async fn unfavorite_secret(
+    State(state): State<AppState>,
+    Path(secret_id): Path<Uuid>,
+    Extension(user_id): Extension<UserId>,
+    headers: HeaderMap,
+) -> AppResult<Json<ApiResponse<()>>> {
+    let password = extract_master_password(&headers)?;
+
+    // Verify Master Password
+    let _ = auth::derive_and_verify_key(&state.db, &state.cache, user_id.into_inner(), &password)
+        .await?;
+
+    // Update favorite status
+    crate::repository::secret::update_favorite(&state.db, secret_id, user_id.into_inner(), false)
+        .await?;
+
+    // Invalidate caches
+    let _ = cache::invalidate_secrets(&state.cache, user_id.into_inner()).await;
+    let _ = cache::invalidate_secret_by_id(&state.cache, secret_id).await;
+
+    tracing::info!("Secret unfavorited: {}", secret_id);
+
+    Ok(Json(ApiResponse {
+        success: true,
+        message: Some("Secret unfavorited".to_string()),
+        data: None,
+    }))
+}

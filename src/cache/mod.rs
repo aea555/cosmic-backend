@@ -53,6 +53,23 @@ pub async fn set_canary(pool: &Pool, user_id: Uuid, canary: &[u8]) -> AppResult<
     Ok(())
 }
 
+/// Invalidates the canary cache for a user.
+///
+/// Params: Redis pool, user UUID.
+/// Logic: Deletes cached canary. Called after password change.
+/// Returns: Unit on success.
+pub async fn invalidate_canary(pool: &Pool, user_id: Uuid) -> AppResult<()> {
+    let mut conn = pool
+        .get()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
+
+    let key = format!("user:{}:canary", user_id);
+    let _: () = conn.del(&key).await?;
+
+    Ok(())
+}
+
 /// Gets the encrypted secrets list from cache.
 ///
 /// Params: Redis pool, user UUID.

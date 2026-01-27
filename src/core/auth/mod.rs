@@ -143,7 +143,7 @@ pub async fn login(
     }
 
     // Generate tokens
-    let access_token = generate_access_token(user.id, settings)?;
+    let access_token = generate_access_token(user.id, user.token_version, settings)?;
     let refresh_token = crypto::generate_refresh_token();
     let refresh_token_hash = crypto::hash_refresh_token(&refresh_token);
     let expires_at = Utc::now() + Duration::days(settings.refresh_token_expiry_days);
@@ -207,8 +207,11 @@ pub async fn refresh_tokens(
     // Blacklist the old token in cache
     let _ = cache::blacklist_token(cache, &token_hash).await;
 
+    // Fetch user to get current token version
+    let user = repository::user::find_by_id(pool, stored_token.user_id).await?;
+
     // Generate new tokens
-    let access_token = generate_access_token(stored_token.user_id, settings)?;
+    let access_token = generate_access_token(stored_token.user_id, user.token_version, settings)?;
     let new_refresh_token = crypto::generate_refresh_token();
     let new_token_hash = crypto::hash_refresh_token(&new_refresh_token);
     let expires_at = Utc::now() + Duration::days(settings.refresh_token_expiry_days);
@@ -247,13 +250,23 @@ pub async fn logout(pool: &PgPool, cache: &RedisPool, refresh_token: &str) -> Ap
 /// Params: User UUID, app settings.
 /// Logic: Creates signed JWT with claims.
 /// Returns: Encoded JWT string.
-fn generate_access_token(user_id: Uuid, settings: &Settings) -> AppResult<String> {
+/// Generates a JWT access token.
+///
+/// Params: User UUID, token version, app settings.
+/// Logic: Creates signed JWT with claims.
+/// Returns: Encoded JWT string.
+fn generate_access_token(
+    user_id: Uuid,
+    token_version: i32,
+    settings: &Settings,
+) -> AppResult<String> {
     let now = Utc::now();
     let exp = now + Duration::seconds(settings.jwt_expiry_seconds);
 
     let claims = Claims {
         sub: user_id.to_string(),
         user_id,
+        token_version,
         exp: exp.timestamp() as usize,
         iat: now.timestamp() as usize,
     };
@@ -266,15 +279,15 @@ fn generate_access_token(user_id: Uuid, settings: &Settings) -> AppResult<String
     .map_err(|e| AppError::Internal(format!("Failed to generate JWT: {}", e)))
 }
 
-/// Validates a JWT access token and extracts the user ID.
+/// Validates a JWT access token and extracts the user ID and token version.
 ///
 /// Params: Token string, app settings.
 /// Logic: Verifies signature and expiration.
-/// Returns: UserId from the token claims.
+/// Returns: UserId and token_version from the token claims.
 ///
 /// # Errors
 /// Returns InvalidToken if token is invalid or expired.
-pub fn validate_access_token(token: &str, settings: &Settings) -> AppResult<UserId> {
+pub fn validate_access_token(token: &str, settings: &Settings) -> AppResult<(UserId, i32)> {
     let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(settings.jwt_secret.expose_secret().as_bytes()),
@@ -282,7 +295,10 @@ pub fn validate_access_token(token: &str, settings: &Settings) -> AppResult<User
     )
     .map_err(|_| AppError::InvalidToken)?;
 
-    Ok(UserId(token_data.claims.user_id))
+    Ok((
+        UserId(token_data.claims.user_id),
+        token_data.claims.token_version,
+    ))
 }
 
 /// Derives the Master Key from password for a given user.
@@ -328,4 +344,54 @@ pub async fn derive_and_verify_key(
     })
     .await
     .map_err(|e| AppError::Internal(format!("Blocking task failed: {}", e)))?
+}
+
+/// Verifies the Master Password for a user.
+///
+/// Params: Database pool, cache pool, user ID, password, app settings.
+/// Logic: Wrapper around derive_and_verify_key for handler convenience.
+/// Returns: MasterKey on success.
+pub async fn verify_master_password(
+    pool: &PgPool,
+    cache: &RedisPool,
+    user_id: Uuid,
+    password: &str,
+    _settings: &Settings,
+) -> AppResult<MasterKey> {
+    derive_and_verify_key(pool, cache, user_id, password).await
+}
+
+/// Validates a refresh token is valid and not expired/reused.
+///
+/// Params: Database pool, cache pool, refresh token.
+/// Logic: Checks blacklist, existence, and expiry without marking as used.
+/// Returns: Unit on success, error if invalid.
+pub async fn validate_refresh_token(
+    pool: &PgPool,
+    cache: &RedisPool,
+    refresh_token: &str,
+) -> AppResult<()> {
+    let token_hash = crypto::hash_refresh_token(refresh_token);
+
+    // Check blacklist
+    if cache::is_token_blacklisted(cache, &token_hash)
+        .await
+        .unwrap_or(false)
+    {
+        return Err(AppError::InvalidToken);
+    }
+
+    let stored_token = repository::token::find_by_hash(pool, &token_hash).await?;
+
+    // Check if already used
+    if stored_token.used {
+        return Err(AppError::TokenReused);
+    }
+
+    // Check expiry
+    if stored_token.expires_at < Utc::now() {
+        return Err(AppError::TokenExpired);
+    }
+
+    Ok(())
 }

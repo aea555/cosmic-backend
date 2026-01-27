@@ -15,7 +15,7 @@ use uuid::Uuid;
 /// Returns: Vector of Note records (still encrypted).
 pub async fn find_all_by_user(pool: &PgPool, user_id: Uuid) -> AppResult<Vec<Note>> {
     let notes = sqlx::query_as::<_, Note>(
-        "SELECT id, user_id, encrypted_data, created_at, updated_at
+        "SELECT id, user_id, encrypted_data, is_favorite, created_at, updated_at
          FROM notes
          WHERE user_id = $1
          ORDER BY created_at DESC",
@@ -34,7 +34,7 @@ pub async fn find_all_by_user(pool: &PgPool, user_id: Uuid) -> AppResult<Vec<Not
 /// Returns: Note if found and owned by user, NoteNotFound (generically SecretNotFound or potentially new error) otherwise.
 pub async fn find_by_id(pool: &PgPool, note_id: Uuid, user_id: Uuid) -> AppResult<Note> {
     sqlx::query_as::<_, Note>(
-        "SELECT id, user_id, encrypted_data, created_at, updated_at
+        "SELECT id, user_id, encrypted_data, is_favorite, created_at, updated_at
          FROM notes
          WHERE id = $1 AND user_id = $2",
     )
@@ -42,7 +42,7 @@ pub async fn find_by_id(pool: &PgPool, note_id: Uuid, user_id: Uuid) -> AppResul
     .bind(user_id)
     .fetch_optional(pool)
     .await?
-    .ok_or(AppError::SecretNotFound) // Reusing SecretNotFound as generic "Entity Not Found" or should add NoteNotFound? Keeping simple for now.
+    .ok_or(AppError::SecretNotFound)
 }
 
 /// Creates a new encrypted note for a user.
@@ -54,7 +54,7 @@ pub async fn create(pool: &PgPool, user_id: Uuid, encrypted_data: &[u8]) -> AppR
     sqlx::query_as::<_, Note>(
         "INSERT INTO notes (user_id, encrypted_data)
          VALUES ($1, $2)
-         RETURNING id, user_id, encrypted_data, created_at, updated_at",
+         RETURNING id, user_id, encrypted_data, is_favorite, created_at, updated_at",
     )
     .bind(user_id)
     .bind(encrypted_data)
@@ -78,7 +78,7 @@ pub async fn update(
         "UPDATE notes
          SET encrypted_data = $1, updated_at = NOW()
          WHERE id = $2 AND user_id = $3
-         RETURNING id, user_id, encrypted_data, created_at, updated_at",
+         RETURNING id, user_id, encrypted_data, is_favorite, created_at, updated_at",
     )
     .bind(encrypted_data)
     .bind(note_id)
@@ -101,4 +101,29 @@ pub async fn delete(pool: &PgPool, note_id: Uuid, user_id: Uuid) -> AppResult<bo
         .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+/// Updates the favorite status of a note.
+///
+/// Params: Database pool, note UUID, user UUID, is_favorite flag.
+/// Logic: Updates is_favorite field, ensuring user ownership.
+/// Returns: Updated Note record, Error if not found.
+pub async fn update_favorite(
+    pool: &PgPool,
+    note_id: Uuid,
+    user_id: Uuid,
+    is_favorite: bool,
+) -> AppResult<Note> {
+    sqlx::query_as::<_, Note>(
+        "UPDATE notes
+         SET is_favorite = $1, updated_at = NOW()
+         WHERE id = $2 AND user_id = $3
+         RETURNING id, user_id, encrypted_data, is_favorite, created_at, updated_at",
+    )
+    .bind(is_favorite)
+    .bind(note_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::SecretNotFound)
 }
