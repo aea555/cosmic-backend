@@ -134,7 +134,16 @@ jobs:
               printf '\nBACKEND_IMAGE=%s\n' "${BACKEND_IMAGE}" >> .env.production
             fi
 
-            docker compose -f docker/docker-compose.yml --env-file .env.production pull api
+            if ! docker pull "${BACKEND_IMAGE}"; then
+              echo "Initial image pull failed. Retrying once after optional docker daemon restart..."
+              docker system df || true
+              if command -v systemctl >/dev/null 2>&1; then
+                sudo -n systemctl restart docker || true
+                sleep 5
+              fi
+              docker pull "${BACKEND_IMAGE}" || exit 1
+            fi
+
             docker compose -f docker/docker-compose.yml --env-file .env.production up -d --no-build --remove-orphans
             docker image prune -f
 
