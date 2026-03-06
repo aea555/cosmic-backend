@@ -17,6 +17,7 @@ jobs:
               uses: tailscale/github-action@v3
               with:
                   authkey: ${{ env.TS_AUTHKEY }}
+                  command_timeout: 45m
 
             - name: Select SSH host (Tailscale first)
               id: ssh_host

@@ -23,6 +23,7 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+          command_timeout: 45m
 
       - name: Derive image tags
         id: image
