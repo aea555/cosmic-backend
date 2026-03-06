@@ -17,7 +17,6 @@ jobs:
               uses: tailscale/github-action@v3
               with:
                   authkey: ${{ env.TS_AUTHKEY }}
-                  command_timeout: 45m
 
             - name: Select SSH host (Tailscale first)
               id: ssh_host
@@ -51,6 +50,7 @@ jobs:
             - name: Execute Remote SSH Commands
               uses: appleboy/ssh-action@v1.0.3
               with:
+                  command_timeout: 45m
                   host: ${{ steps.ssh_host.outputs.host }}
                   port: 2558
                   username: ${{ secrets.SSH_USER }}
